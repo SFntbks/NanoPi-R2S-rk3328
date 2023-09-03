@@ -6,7 +6,7 @@
 # Blog: https://p3terx.com
 #=================================================
 
-name: NanoPi-R2S-容器
+name: NanoPi-R2C-full-self
 
 on:
   repository_dispatch:
@@ -28,7 +28,7 @@ env:
 jobs:
   Build:
     runs-on: self-hosted
-    if: github.repository == 'DHDAXCW/NanoPi-R2S-rk3328'
+    # if: github.repository == 'DHDAXCW/NanoPi-R2S-rk3328'
     outputs:
       OPENWRTROOT: ${{ steps.update.outputs.OPENWRTROOT }}
       PLATFORM: ${{ steps.compile.outputs.PLATFORM }}
@@ -36,11 +36,58 @@ jobs:
       SUBTARGET: ${{ steps.compile.outputs.SUBTARGET }}
       FIRMWARE: ${{ steps.compile.outputs.FIRMWARE }}
       GENERATE_STATUS: ${{ steps.generate.outputs.GENERATE_STATUS }}
-
+    permissions:
+      contents: write
+      discussions: write
     steps:
+     - name: 检查服务器配置
+       run: |
+         echo "警告⚠"
+         echo "若分配的服务器性能不足，务必及时取消，重新运行！"
+         echo "已知编译成功CPU型号：8370C,8171M"
+         echo "已知性能不足CPU型号：8272CL,E5系列"
+         echo "--------------------------CPU信息--------------------------"
+         echo "CPU物理数量:$(cat /proc/cpuinfo| grep "physical id"| sort| uniq| wc -l)"
+         echo -e "CPU核心及版本信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
+         echo "--------------------------内存信息--------------------------"
+         echo "已安装内存详细信息："
+         sudo lshw -short -C memory | grep GiB
+         echo -e "\n"
+         echo "--------------------------硬盘信息--------------------------"
+         echo -e  "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l) \n"
+         echo "硬盘详情："
+         df -Th
+
+    # - name: Space cleanup and Initialization environment
+    #   env:
+    #     DEBIAN_FRONTEND: noninteractive
+    #   run: |
+    #     docker rmi `docker images -q`
+    #     sudo -E rm -rf /usr/share/dotnet /etc/mysql /etc/php /etc/apt/sources.list.d /usr/local/lib/android
+    #     sudo -E apt-mark hold grub-efi-amd64-signed
+    #     sudo -E apt update
+    #     sudo -E apt -y purge azure-cli* docker* ghc* zulu* llvm* firefox google* dotnet* powershell* openjdk* mysql* php* mongodb* dotnet* moby* snap*
+    #     sudo -E apt -y full-upgrade
+    #     sudo -E apt -y install ack antlr3 aria2 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache cmake cpio curl device-tree-compiler fastjar flex gawk gettext gcc-multilib g++-multilib git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libreadline-dev libssl-dev libtool lrzsz mkisofs msmtp nano ninja-build p7zip p7zip-full patch pkgconf python3 python3-pip libpython3-dev qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev fuse3 libfuse3-dev
+    #     sudo -E systemctl daemon-reload
+    #     sudo -E apt -y autoremove --purge
+    #     sudo -E apt clean
+    #     sudo -E timedatectl set-timezone "Asia/Shanghai"
     - name: Checkout
       uses: actions/checkout@v3
-
+    - name: Initialization Environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        echo -e "Total CPU cores\t: $(nproc)"
+        cat /proc/cpuinfo | grep 'model name'
+        free -h
+        uname -a
+        [ -f /proc/version ] && cat /proc/version
+        [ -f /etc/issue.net ] && cat /etc/issue.net
+        [ -f /etc/issue ] && cat /etc/issue
+        ulimit -a
+        
     - name: Clone Source Code
       run: |
         df -hT $PWD
@@ -63,6 +110,7 @@ jobs:
       run: |
         cd $OPENWRTROOT
         ./scripts/feeds install -a
+
     - name: Load Custom Configuration
       run: |
         [ -e files ] && mv files $OPENWRTROOT/files
@@ -73,7 +121,7 @@ jobs:
         ../scripts/preset-clash-core.sh arm64
         ../scripts/preset-terminal-tools.sh
         make defconfig
-
+        
     - name: Download Package
       id: package
       run: |
@@ -88,11 +136,11 @@ jobs:
       run: |
         cd $OPENWRTROOT
         echo -e "$(nproc) thread compile"
-        make tools/compile -j$(nproc) || make tools/compile -j$(nproc)
-        make toolchain/compile -j$(nproc) || make toolchain/compile -j$(nproc)
-        make target/compile -j$(nproc) || make target/compile -j$(nproc) IGNORE_ERRORS=1
+        make tools/compile -j$(nproc) || make tools/compile -j$(nproc) V=sc
+        make toolchain/compile -j$(nproc) || make toolchain/compile -j$(nproc) V=sc
+        make target/compile -j$(nproc) || make target/compile -j$(nproc) V=sc IGNORE_ERRORS=1
         make diffconfig
-        make package/compile -j$(nproc) IGNORE_ERRORS=1 || make package/compile -j$(nproc) IGNORE_ERRORS=1
+        make package/compile -j$(nproc) IGNORE_ERRORS=1 || make package/compile -j$(nproc) V=sc IGNORE_ERRORS=1
         make package/index
         cd $OPENWRTROOT/bin/packages/*
         PLATFORM=$(basename `pwd`)
@@ -135,21 +183,20 @@ jobs:
         fi
         cp files/etc/opkg/distfeeds.conf.server files/etc/opkg/distfeeds.conf.mirror
         sed -i "s/http:\/\/192.168.123.100:2345\/snapshots/https:\/\/openwrt.cc\/snapshots\/$(date +"%Y-%m-%d")\/lean/g" files/etc/opkg/distfeeds.conf.mirror
-        make package/install -j$(nproc) || make package/install -j1 V=s
-        make target/install -j$(nproc) || make target/install -j1 V=s
+        make package/install -j$(nproc) || make package/install -j$(nproc) V=sc
+        make target/install -j$(nproc) || make target/install -j$(nproc) V=sc
         pushd bin/targets/rockchip/armv8
         #rm -rf **ext4**
-        rm -rf openwrt-rockchip-armv8-friendlyarm_nanopi-r2s.manifest
-        rm -rf openwrt-rockchip-armv8-friendlyarm_nanopi-r2s-rootfs.tar.gz
+        rm -rf openwrt-rockchip-armv8-friendlyarm_nanopi-r2c.manifest
+        rm -rf openwrt-rockchip-armv8-friendlyarm_nanopi-r2c-rootfs.tar.gz
         rm -rf config.buildinfo
         rm -rf packages-server.zip
-        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r2s-ext4-sysupgrade.img.gz Docker-friendlyarm_nanopi-r2s-ext4-sysupgrade.img.gz
-        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r2s-squashfs-sysupgrade.img.gz Docker-friendlyarm_nanopi-r2s-squashfs-sysupgrade.img.gz
+        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r2c-ext4-sysupgrade.img.gz slim-friendlyarm_nanopi-r2c-ext4-sysupgrade.img.gz
+        mv openwrt-rockchip-armv8-friendlyarm_nanopi-r2c-squashfs-sysupgrade.img.gz slim-friendlyarm_nanopi-r2c-squashfs-sysupgrade.img.gz
         popd
         make checksum
-        mv bin/targets/rockchip/armv8/sha256sums bin/targets/rockchip/armv8/docker-sha256sums
+        mv bin/targets/rockchip/armv8/sha256sums bin/targets/rockchip/armv8/full-sha256sums
         echo "GENERATE_STATUS=success" >> $GITHUB_OUTPUT
-
     - name: Generate release tag
       id: tag
       if: env.UPLOAD_RELEASE == 'true' && !cancelled()
@@ -170,7 +217,7 @@ jobs:
       env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-          name: ${{ steps.tag.outputs.release_date }} NanoPi-R2S-linux.5.4_固件下载
+          name: ${{ steps.tag.outputs.release_date }} NanoPi-R2C-linux.5.4_固件下载
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
           files: ${{ env.FIRMWARE }}/*
