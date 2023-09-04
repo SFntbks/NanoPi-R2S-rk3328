@@ -86,7 +86,6 @@ jobs:
         ../scripts/preset-terminal-tools.sh
         make defconfig
     - name: Clean build cache
-      if: ${{ github.event.client_payload.package_clean == 'true' || github.event.inputs.device != '' }}
       run: |
         cd openwrt
         df -h .
